@@ -181,5 +181,3 @@ training set, 训练集
 training, 训练
 
 unsupervised learning, 无监督学习
-
-test
