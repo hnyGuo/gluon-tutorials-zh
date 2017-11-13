@@ -38,7 +38,7 @@ class DataLoader(object):
     def __len__(self):
         return len(self.dataset)//self.batch_size
 
-def load_data_fashion_mnist(batch_size, resize=None):
+def load_data_fashion_mnist(batch_size, resize=None, root="~/.mxnet/datasets/fashion-mnist"):
     """download the fashion mnist dataest and then load into memory"""
     def transform_mnist(data, label):
         # transform a batch of examples
@@ -50,8 +50,8 @@ def load_data_fashion_mnist(batch_size, resize=None):
             data = new_data
         # change data from batch x height x weight x channel to batch x channel x height x weight
         return nd.transpose(data.astype('float32'), (0,3,1,2))/255, label.astype('float32')
-    mnist_train = gluon.data.vision.FashionMNIST(train=True, transform=transform_mnist)
-    mnist_test = gluon.data.vision.FashionMNIST(train=False, transform=transform_mnist)
+    mnist_train = gluon.data.vision.FashionMNIST(root=root, train=True, transform=transform_mnist)
+    mnist_test = gluon.data.vision.FashionMNIST(root=root, train=False, transform=transform_mnist)
     train_data = DataLoader(mnist_train, batch_size, shuffle=True)
     test_data = DataLoader(mnist_test, batch_size, shuffle=False)
     return (train_data, test_data)
@@ -108,8 +108,8 @@ def evaluate_accuracy(data_iterator, net, ctx=[mx.cpu()]):
         data, label, batch_size = _get_batch(batch, ctx)
         for X, y in zip(data, label):
             acc += nd.sum(net(X).argmax(axis=1)==y).copyto(mx.cpu())
+            n += y.size
         acc.wait_to_read() # don't push too many operators into backend
-        n += batch_size
     return acc.asscalar() / n
 
 def train(train_data, test_data, net, loss, trainer, ctx, num_epochs, print_batches=None):
@@ -118,7 +118,7 @@ def train(train_data, test_data, net, loss, trainer, ctx, num_epochs, print_batc
     if isinstance(ctx, mx.Context):
         ctx = [ctx]
     for epoch in range(num_epochs):
-        train_loss, train_acc, n = 0.0, 0.0, 0.0
+        train_loss, train_acc, n, m = 0.0, 0.0, 0.0, 0.0
         if isinstance(train_data, mx.io.MXDataIter):
             train_data.reset()
         start = time()
@@ -135,14 +135,15 @@ def train(train_data, test_data, net, loss, trainer, ctx, num_epochs, print_batc
             train_loss += sum([l.sum().asscalar() for l in losses])
             trainer.step(batch_size)
             n += batch_size
+            m += sum([y.size for y in label])
             if print_batches and (i+1) % print_batches == 0:
                 print("Batch %d. Loss: %f, Train acc %f" % (
-                    n, train_loss/n, train_acc/n
+                    n, train_loss/n, train_acc/m
                 ))
 
         test_acc = evaluate_accuracy(test_data, net, ctx)
         print("Epoch %d. Loss: %.3f, Train acc %.2f, Test acc %.2f, Time %.1f sec" % (
-            epoch, train_loss/n, train_acc/n, test_acc, time() - start
+            epoch, train_loss/n, train_acc/m, test_acc, time() - start
         ))
 
 class Residual(nn.HybridBlock):
